@@ -1,0 +1,17 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.o
+*.a
+*.out
+*.exe
+*.swp
+*.zip
+*.DS_Store
+.vscode/
+build/
+dist/
+venv/
+env/
