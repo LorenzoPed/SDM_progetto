@@ -2,7 +2,6 @@
 #include <iostream>
 #include <x86intrin.h> // Per __rdtsc()
 
-
 using namespace cv;
 
 void templateMatching(const Mat& image,
@@ -18,22 +17,32 @@ void templateMatching(const Mat& image,
 
     // Scorri l'immagine
     for (int i = 0; i <= imgRows - tmplRows; ++i) {
+        // Ottieni un puntatore alla riga corrente dell'immagine
+        const uint8_t* imgPtr = image.ptr<uint8_t>(i);
+
+        // Ottieni un puntatore alla riga corrente della matrice dei punteggi
+        float* scoresPtr = matchScores.ptr<float>(i);
+
         for (int j = 0; j <= imgCols - tmplCols; ++j) {
             float score = 0.0f;
 
             // Confronta il template con l'immagine
             for (int x = 0; x < tmplRows; ++x) {
+                // Ottieni un puntatore alla riga corrente del template
+                const uint8_t* tmplPtr = templateImg.ptr<uint8_t>(x);
+
+                // Ottieni un puntatore alla riga corrente dell'immagine (offset per la finestra corrente)
+                const uint8_t* imgWindowPtr = image.ptr<uint8_t>(i + x) + j;
+
                 for (int y = 0; y < tmplCols; ++y) {
                     // Calcola la differenza tra i pixel
-                    float diff = static_cast<float>(
-                        image.at<uint8_t>(i + x, j + y) - templateImg.at<uint8_t>(x, y)
-                    );
+                    float diff = static_cast<float>(imgWindowPtr[y] - tmplPtr[y]);
                     score += diff * diff; // Somma dei quadrati delle differenze
                 }
             }
 
             // Salva il punteggio
-            matchScores.at<float>(i, j) = score;
+            scoresPtr[j] = score;
         }
     }
 }
@@ -66,7 +75,7 @@ int main() {
 
     // Matrice dei punteggi
     Mat matchScores;
-    // inzializzare contatore clock
+    // Inizializza il contatore del clock
     uint64_t start = __rdtsc(); 
 
     // Esegui il template matching
@@ -92,7 +101,7 @@ int main() {
     // Mostra i risultati
     cv::namedWindow("Template", cv::WINDOW_NORMAL); // Finestra ridimensionabile
     cv::namedWindow("Immagine principale", cv::WINDOW_NORMAL);
- 
+   
     imshow("Immagine principale", image);
     imshow("Template", templateImg);
     waitKey(0);
