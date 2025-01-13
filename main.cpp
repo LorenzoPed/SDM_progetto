@@ -1,5 +1,7 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
+#include <x86intrin.h> // Per __rdtsc()
+
 
 using namespace cv;
 
@@ -64,9 +66,15 @@ int main() {
 
     // Matrice dei punteggi
     Mat matchScores;
+    // inzializzare contatore clock
+    uint64_t start = __rdtsc(); 
 
     // Esegui il template matching
     templateMatching(grayImage, grayTemplate, matchScores);
+
+    uint64_t end = __rdtsc(); // Ferma il timer
+    uint64_t elapsed = end - start; // Calcola i cicli di clock trascorsi
+    std::cout << "Cicli di clock: " << elapsed << std::endl;        
 
     // Trova la posizione con il punteggio migliore (minimo)
     double minScore;
