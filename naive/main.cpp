@@ -49,8 +49,8 @@ void templateMatching(const Mat& image,
 
 int main() {
     // Carica l'immagine principale e il template
-    Mat image = imread("cartaCoppe.jpg", IMREAD_COLOR);       // Immagine principale
-    Mat templateImg = imread("templete.jpg", IMREAD_COLOR); // Template
+    Mat image = imread("../../immagini/cartaCoppe.jpg", IMREAD_COLOR);       // Immagine principale
+    Mat templateImg = imread("../../immagini/templete.jpg", IMREAD_COLOR); // Template
 
     if (image.empty() || templateImg.empty()) {
         std::cerr << "Errore: impossibile caricare le immagini." << std::endl;
