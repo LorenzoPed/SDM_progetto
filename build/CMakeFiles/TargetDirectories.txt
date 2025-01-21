@@ -1,0 +1,3 @@
+/home/ped/Scrivania/UNI/SDM/Progetto/progetto/build/CMakeFiles/main.dir
+/home/ped/Scrivania/UNI/SDM/Progetto/progetto/build/CMakeFiles/edit_cache.dir
+/home/ped/Scrivania/UNI/SDM/Progetto/progetto/build/CMakeFiles/rebuild_cache.dir

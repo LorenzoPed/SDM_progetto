@@ -1,12 +1,13 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <x86intrin.h> // Per __rdtsc()
+#include <omp.h>       // Per OpenMP
 
 using namespace cv;
 
-void templateMatching(const Mat &image,
-                      const Mat &templateImg,
-                      Mat &matchScores)
+void templateMatchingMixedSIMD(const Mat &image,
+                               const Mat &templateImg,
+                               Mat &matchScores)
 {
     int imgRows = image.rows;
     int imgCols = image.cols;
@@ -16,35 +17,48 @@ void templateMatching(const Mat &image,
     // Crea la matrice dei punteggi
     matchScores.create(imgRows - tmplRows + 1, imgCols - tmplCols + 1, CV_32F);
 
-    // Scorri l'immagine
+// Parallelizzazione per righe
+#pragma omp parallel for
     for (int i = 0; i <= imgRows - tmplRows; ++i)
     {
-        // Ottieni un puntatore alla riga corrente dell'immagine
-        const uint8_t *imgPtr = image.ptr<uint8_t>(i);
-
-        // Ottieni un puntatore alla riga corrente della matrice dei punteggi
         float *scoresPtr = matchScores.ptr<float>(i);
 
         for (int j = 0; j <= imgCols - tmplCols; ++j)
         {
-            float score = 0.0f;
+            __m128i sumInt = _mm_setzero_si128(); // Accumulatore SIMD per valori interi
 
-            // Confronta il template con l'immagine
             for (int x = 0; x < tmplRows; ++x)
             {
-                // Ottieni un puntatore alla riga corrente del template
                 const uint8_t *tmplPtr = templateImg.ptr<uint8_t>(x);
-
-                // Ottieni un puntatore alla riga corrente dell'immagine (offset per la finestra corrente)
                 const uint8_t *imgWindowPtr = image.ptr<uint8_t>(i + x) + j;
 
-                for (int y = 0; y < tmplCols; ++y)
+                int y = 0;
+                // Elabora 16 pixel alla volta con SIMD
+                for (; y <= tmplCols - 16; y += 16)
                 {
-                    // Calcola la differenza tra i pixel
-                    float diff = static_cast<float>(imgWindowPtr[y] - tmplPtr[y]);
-                    score += diff * diff; // Somma dei quadrati delle differenze
+                    // Carica 16 pixel dall'immagine e dal template
+                    __m128i imgPixels = _mm_loadu_si128((__m128i *)&imgWindowPtr[y]);
+                    __m128i tmplPixels = _mm_loadu_si128((__m128i *)&tmplPtr[y]);
+
+                    // Calcola la differenza assoluta
+                    __m128i diff = _mm_abs_epi8(_mm_sub_epi8(imgPixels, tmplPixels));
+
+                    // Accumula le differenze
+                    sumInt = _mm_add_epi32(sumInt, _mm_sad_epu8(diff, _mm_setzero_si128()));
+                }
+
+                // Elabora i pixel rimanenti
+                for (; y < tmplCols; ++y)
+                {
+                    int diff = static_cast<int>(imgWindowPtr[y]) - static_cast<int>(tmplPtr[y]);
+                    sumInt = _mm_add_epi32(sumInt, _mm_set1_epi32(abs(diff)));
                 }
             }
+
+            // Converti il risultato intero in float
+            int sumArray[4];
+            _mm_storeu_si128((__m128i *)sumArray, sumInt);
+            float score = static_cast<float>(sumArray[0] + sumArray[1] + sumArray[2] + sumArray[3]);
 
             // Salva il punteggio
             scoresPtr[j] = score;
@@ -82,11 +96,12 @@ int main()
 
     // Matrice dei punteggi
     Mat matchScores;
+
     // Inizializza il contatore del clock
     uint64_t start = __rdtsc();
 
     // Esegui il template matching
-    templateMatching(grayImage, grayTemplate, matchScores);
+    templateMatchingMixedSIMD(grayImage, grayTemplate, matchScores);
 
     uint64_t end = __rdtsc();       // Ferma il timer
     uint64_t elapsed = end - start; // Calcola i cicli di clock trascorsi
@@ -97,13 +112,11 @@ int main()
     Point minLoc;
     minMaxLoc(matchScores, &minScore, nullptr, &minLoc, nullptr);
 
-    // Ridimensiona le coordinate della posizione trovata alle dimensioni originali
+    // Disegna un rettangolo attorno alla posizione trovata
     minLoc.x = static_cast<int>(minLoc.x / scaleFactor);
     minLoc.y = static_cast<int>(minLoc.y / scaleFactor);
-
-    // Disegna un rettangolo attorno alla posizione trovata
     Rect matchRect(minLoc, Size(templateImg.cols, templateImg.rows));
-    rectangle(image, matchRect, Scalar(0, 255, 0), 2); // Rettangolo verde
+    rectangle(image, matchRect, Scalar(0, 255, 0), 2);
 
     // Mostra i risultati
     cv::namedWindow("Template", cv::WINDOW_NORMAL); // Finestra ridimensionabile

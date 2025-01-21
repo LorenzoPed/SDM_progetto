@@ -1,0 +1,8 @@
+[
+{
+  "directory": "/home/ped/Scrivania/UNI/SDM/Progetto/progetto/build",
+  "command": "/usr/bin/c++ -isystem /usr/include/opencv4 -g -std=gnu++11 -o CMakeFiles/main.dir/main.cpp.o -c /home/ped/Scrivania/UNI/SDM/Progetto/progetto/naive/main.cpp",
+  "file": "/home/ped/Scrivania/UNI/SDM/Progetto/progetto/naive/main.cpp",
+  "output": "CMakeFiles/main.dir/main.cpp.o"
+}
+]
