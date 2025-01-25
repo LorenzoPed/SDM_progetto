@@ -1,0 +1,3 @@
+/home/andrea-fasano/SDM_progetto_scalar_V1/build/CMakeFiles/main.dir
+/home/andrea-fasano/SDM_progetto_scalar_V1/build/CMakeFiles/edit_cache.dir
+/home/andrea-fasano/SDM_progetto_scalar_V1/build/CMakeFiles/rebuild_cache.dir
