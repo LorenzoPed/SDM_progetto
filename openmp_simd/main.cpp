@@ -41,10 +41,12 @@ void templateMatchingMixedSIMD(const Mat &image,
                     __m128i tmplPixels = _mm_loadu_si128((__m128i *)&tmplPtr[y]);
 
                     // Calcola la differenza assoluta
-                    __m128i diff = _mm_abs_epi8(_mm_sub_epi8(imgPixels, tmplPixels));
-
+                    // __m128i diff = _mm_abs_epi8(_mm_sub_epi8(imgPixels, tmplPixels));
+                    __m128i diff = _mm_sub_epi8(imgPixels, tmplPixels); // Differenza
+                    __m128i diffSquared = _mm_mullo_epi16(diff, diff); // Quadrato della differenza
                     // Accumula le differenze
-                    sumInt = _mm_add_epi32(sumInt, _mm_sad_epu8(diff, _mm_setzero_si128()));
+                    sumInt = _mm_add_epi32(sumInt, _mm_sad_epu8(diffSquared, _mm_setzero_si128()));
+                    //sumInt = _mm_add_epi32(sumInt, _mm_sad_epu8(diff, _mm_setzero_si128()));
                 }
 
                 // Elabora i pixel rimanenti
