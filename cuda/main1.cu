@@ -4,7 +4,7 @@
 #include <stdio.h>
 
 #define INDEX(x, y, width) ((y) * (width) + (x))
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 32
 
 // Kernel per calcolare la somma cumulativa per riga
 __global__ void rowCumSum(float *image, float *rowSum, int width, int height) {
@@ -19,14 +19,14 @@ __global__ void rowCumSum(float *image, float *rowSum, int width, int height) {
 }
 
 // Kernel per calcolare la somma cumulativa per colonna
-__global__ void colCumSum(float *rowSum, float *sumTable, int width, int height) {
+__global__ void colCumSum(float *rowSum, float *colSum, int width, int height) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     if (x >= width) return;
     
     float sum = 0;
     for (int y = 0; y < height; y++) {
         sum += rowSum[INDEX(x, y, width)];
-        sumTable[INDEX(x, y, width)] = sum;
+        colSum[INDEX(x, y, width)] = sum;
     }
 }
 
@@ -131,21 +131,28 @@ cudaError_t templateMatchingSSD(
     int threadsPerBlock = BLOCK_SIZE;
     dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
     dim3 gridSize(
-        (width - kx + BLOCK_SIZE) / BLOCK_SIZE,
-        (height - ky + BLOCK_SIZE) / BLOCK_SIZE
+        (width + BLOCK_SIZE - 1) / BLOCK_SIZE,
+        (height + BLOCK_SIZE - 1) / BLOCK_SIZE
     );
     
-    
-
     // Calcolo immagini integrali
-    rowCumSum<<<(height+threadsPerBlock-1)/threadsPerBlock, threadsPerBlock>>>(d_image, d_imageSum, width, height);
-    colCumSum<<<(width+threadsPerBlock-1)/threadsPerBlock, threadsPerBlock>>>(d_imageSum, d_imageSum, width, height);
+    rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_image, d_imageSum, width, height);
+    // cudaDeviceSynchronize();
     
-    rowCumSum<<<(height+threadsPerBlock-1)/threadsPerBlock, threadsPerBlock>>>(d_imageSqSum, d_imageSqSum, width, height);
-    colCumSum<<<(width+threadsPerBlock-1)/threadsPerBlock, threadsPerBlock>>>(d_imageSqSum, d_imageSqSum, width, height);
+    float *d_colSum;
+    cudaMalloc(&d_colSum, imageSize);
+    colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_imageSum, d_colSum, width, height);
+    // cudaDeviceSynchronize();
+    
+    rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_imageSqSum, d_imageSqSum, width, height);
+    // cudaDeviceSynchronize();
+    
+    colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_imageSqSum, d_colSum, width, height);
+    // cudaDeviceSynchronize();
     
     // Calcolo SSD
-    computeSSD<<<gridSize, blockSize>>>(
+    dim3 gridSSDSize((width - kx + 1 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height - ky + 1 + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    computeSSD<<<gridSSDSize, blockSize>>>(
         d_imageSum,
         d_imageSqSum,
         templateSum,
@@ -173,6 +180,7 @@ cudaError_t templateMatchingSSD(
     cudaFree(d_imageSum);
     cudaFree(d_imageSqSum);
     cudaFree(d_ssdResult);
+    cudaFree(d_colSum);
     
     return cudaStatus;
 }
@@ -205,10 +213,9 @@ int main() {
     );
     
     // Mostra il risultato
+    cv::imwrite("Result.jpg", image);
     cv::namedWindow("Immagine principale", cv::WINDOW_NORMAL);
-
     imshow("Immagine principale", image);
-    //cv::imwrite("Result.jpg", image);
     cv::waitKey(0);
     
     return 0;

@@ -17,3 +17,6 @@ __pycache__/
 dist/
 venv/
 env/
+Dockerfile
+testSI*
+build/
