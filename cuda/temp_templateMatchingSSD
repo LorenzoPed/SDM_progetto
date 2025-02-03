@@ -1,0 +1,125 @@
+cudaError_t templateMatchingSSD(
+    const cv::Mat &image,
+    const cv::Mat &templ,
+    cv::Point *bestLoc)
+{
+    // Conversione delle immagini in float
+    cv::Mat imageFloat, templFloat;
+    image.convertTo(imageFloat, CV_32F);
+    templ.convertTo(templFloat, CV_32F);
+
+    int width = image.cols;
+    int height = image.rows;
+    int kx = templ.cols;
+    int ky = templ.rows;
+
+    // Calcolo delle somme del template
+    float templateSum = 0;
+    float templateSqSum = 0;
+    for (int i = 0; i < kx * ky; i++)
+    {
+        float val = templFloat.ptr<float>()[i];
+        templateSum += val;
+        templateSqSum += val * val;
+    }
+
+    // Allocazione memoria su device
+    float *d_image, *d_imageSum, *d_imageSqSum, *d_ssdResult, *d_rowSum, *d_imageSq, *d_rowSqSum;
+    size_t imageSize = width * height * sizeof(float);
+    size_t resultSize = (width - kx + 1) * (height - ky + 1) * sizeof(float);
+
+    cudaError_t cudaStatus;
+
+    // Allocazione memoria su device
+    cudaStatus = cudaMalloc(&d_image, imageSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    cudaStatus = cudaMalloc(&d_imageSum, imageSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    cudaStatus = cudaMalloc(&d_imageSqSum, imageSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    cudaStatus = cudaMalloc(&d_imageSq, imageSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    cudaStatus = cudaMalloc(&d_ssdResult, resultSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+    //  float *d_colSum;
+    // cudaMalloc(&d_colSum, imageSize);
+    cudaStatus = cudaMalloc(&d_rowSum, imageSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    cudaStatus = cudaMalloc(&d_rowSqSum, imageSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    // Copia immagine su device e creazione immagine dei quadrati
+    cudaStatus = cudaMemcpy(d_image, imageFloat.ptr<float>(), imageSize, cudaMemcpyHostToDevice);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    // Creazione dell'immagine dei quadrati
+    cv::Mat imageSq;
+    cv::multiply(imageFloat, imageFloat, imageSq);
+    cudaStatus = cudaMemcpy(d_imageSq, imageSq.ptr<float>(), imageSize, cudaMemcpyHostToDevice);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    // Calcolo delle immagini integrali
+    int threadsPerBlock = BLOCK_SIZE;
+    dim3 blockSize(BLOCK_SIZE, BLOCK_SIZE);
+    dim3 gridSize(
+        (width + BLOCK_SIZE - 1) / BLOCK_SIZE,
+        (height + BLOCK_SIZE - 1) / BLOCK_SIZE);
+
+    // Calcolo immagini integrali
+    rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_image, d_rowSum, width, height);
+    // float *d_colSum;
+    // cudaMalloc(&d_colSum, imageSize);
+    colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSum, d_imageSum, width, height);
+    rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_imageSq, d_rowSqSum, width, height);
+    colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSqSum, d_imageSqSum, width, height);
+    // Calcolo SSD
+    dim3 gridSSDSize((width - kx + 1 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height - ky + 1 + BLOCK_SIZE - 1) / BLOCK_SIZE);
+    computeSSD<<<gridSSDSize, blockSize>>>(
+        d_imageSum,
+        d_imageSqSum,
+        templateSum,
+        templateSqSum,
+        width,
+        height,
+        kx,
+        ky,
+        d_ssdResult);
+
+    // Copia risultati su host
+    cv::Mat ssdResult(height - ky + 1, width - kx + 1, CV_32F);
+    cudaStatus = cudaMemcpy(ssdResult.ptr<float>(), d_ssdResult, resultSize, cudaMemcpyDeviceToHost);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    // Trova la posizione del minimo SSD
+    double minVal, maxVal;
+    cv::Point minLoc, maxLoc;
+    cv::minMaxLoc(ssdResult, &minVal, &maxVal, &minLoc, &maxLoc);
+    *bestLoc = minLoc;
+
+    //   float *d_image, *d_imageSum, *d_imageSqSum, *d_ssdResult, *d_rowSum, *d_imageSq, *d_rowSqSum;
+    // Cleanup
+    cudaFree(d_image);
+    cudaFree(d_imageSum);
+    cudaFree(d_imageSqSum);
+    cudaFree(d_ssdResult);
+    cudaFree(d_rowSum);
+    cudaFree(d_imageSq);
+    cudaFree(d_rowSqSum);
+
+    return cudaStatus;
+}

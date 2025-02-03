@@ -6,6 +6,56 @@
 #define INDEX(x, y, width) ((y) * (width) + (x))
 #define BLOCK_SIZE 32
 
+// immagine integrele in manaore sequanziale
+void computeIntegralImagesSequential(const cv::Mat &image, cv::Mat &integralImage, cv::Mat &integralSqImage)
+{
+    int width = image.cols;
+    int height = image.rows;
+
+    integralImage.create(height, width, CV_32F);
+    integralSqImage.create(height, width, CV_32F);
+
+    // Calcolo dell'immagine integrale
+    for (int y = 0; y < height; y++)
+    {
+        float rowSum = 0;
+        float rowSqSum = 0;
+        for (int x = 0; x < width; x++)
+        {
+            float pixelValue = image.at<float>(y, x);
+            rowSum += pixelValue;
+            rowSqSum += pixelValue * pixelValue;
+
+            if (y == 0)
+            {
+                integralImage.at<float>(y, x) = rowSum;
+                integralSqImage.at<float>(y, x) = rowSqSum;
+            }
+            else
+            {
+                integralImage.at<float>(y, x) = integralImage.at<float>(y - 1, x) + rowSum;
+                integralSqImage.at<float>(y, x) = integralSqImage.at<float>(y - 1, x) + rowSqSum;
+            }
+        }
+    }
+}
+// comparare le immagini cuda e sequanziali
+bool compareImages(const cv::Mat &image1, const cv::Mat &image2, float tolerance = 1e-5)
+{
+    if (image1.size() != image2.size() || image1.type() != image2.type())
+    {
+        return false;
+    }
+
+    cv::Mat diff;
+    cv::absdiff(image1, image2, diff);
+
+    double maxDiff;
+    cv::minMaxLoc(diff, nullptr, &maxDiff);
+
+    return maxDiff <= tolerance;
+}
+
 // Kernel per calcolare la somma cumulativa per riga
 __global__ void rowCumSum(float *image, float *rowSum, int width, int height)
 {
@@ -133,8 +183,7 @@ cudaError_t templateMatchingSSD(
     cudaStatus = cudaMalloc(&d_ssdResult, resultSize);
     if (cudaStatus != cudaSuccess)
         return cudaStatus;
-    //  float *d_colSum;
-    // cudaMalloc(&d_colSum, imageSize);
+
     cudaStatus = cudaMalloc(&d_rowSum, imageSize);
     if (cudaStatus != cudaSuccess)
         return cudaStatus;
@@ -164,16 +213,46 @@ cudaError_t templateMatchingSSD(
 
     // Calcolo immagini integrali
     rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_image, d_rowSum, width, height);
-    // float *d_colSum;
-    // cudaMalloc(&d_colSum, imageSize);
     colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSum, d_imageSum, width, height);
     rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_imageSq, d_rowSqSum, width, height);
     colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSqSum, d_imageSqSum, width, height);
+
+    // Copia delle immagini integrali calcolate da CUDA su host
+    cv::Mat cudaIntegralImage(height, width, CV_32F);
+    cv::Mat cudaIntegralSqImage(height, width, CV_32F);
+    cudaStatus = cudaMemcpy(cudaIntegralImage.ptr<float>(), d_rowSum, imageSize, cudaMemcpyDeviceToHost);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    cudaStatus = cudaMemcpy(cudaIntegralSqImage.ptr<float>(), d_rowSqSum, imageSize, cudaMemcpyDeviceToHost);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    // Calcolo delle immagini integrali sequenziali
+    cv::Mat seqIntegralImage, seqIntegralSqImage;
+    computeIntegralImagesSequential(imageFloat, seqIntegralImage, seqIntegralSqImage);
+
+    // Confronto delle immagini integrali
+    bool integralMatch = compareImages(cudaIntegralImage, seqIntegralImage);
+    bool integralSqMatch = compareImages(cudaIntegralSqImage, seqIntegralSqImage);
+
+    if (!integralMatch || !integralSqMatch)
+    {
+        printf("Errore: Le immagini integrali calcolate da CUDA non corrispondono a quelle sequenziali.\n");
+        // return cudaErrorUnknown;
+    }
+    else
+    {
+        printf("Ottimo: Le immagini integrali calcolate da CUDA corrispondono a quelle sequenziali.\n");
+    }
+
     // Calcolo SSD
     dim3 gridSSDSize((width - kx + 1 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height - ky + 1 + BLOCK_SIZE - 1) / BLOCK_SIZE);
     computeSSD<<<gridSSDSize, blockSize>>>(
         d_imageSum,
         d_imageSqSum,
+        // d_rowSum, sbagliato ma funzionante
+        // d_rowSqSum,
         templateSum,
         templateSqSum,
         width,
@@ -194,7 +273,6 @@ cudaError_t templateMatchingSSD(
     cv::minMaxLoc(ssdResult, &minVal, &maxVal, &minLoc, &maxLoc);
     *bestLoc = minLoc;
 
-    //   float *d_image, *d_imageSum, *d_imageSqSum, *d_ssdResult, *d_rowSum, *d_imageSq, *d_rowSqSum;
     // Cleanup
     cudaFree(d_image);
     cudaFree(d_imageSum);
