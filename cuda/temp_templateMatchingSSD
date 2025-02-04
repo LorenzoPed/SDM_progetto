@@ -122,4 +122,4 @@ cudaError_t templateMatchingSSD(
     cudaFree(d_rowSqSum);
 
     return cudaStatus;
-}
+} 
