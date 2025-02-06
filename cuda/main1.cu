@@ -59,8 +59,8 @@ int getRegionSumSequential(const cv::Mat &sumTable, int width, int x, int y, int
 void computeSSDSequentialWithIntegrals(
     const cv::Mat &integralImage,   // Immagine integrale della sorgente
     const cv::Mat &integralSqImage, // Immagine integrale dei quadrati
-    double templateSum,              // Somma dei pixel del template
-    double templateSqSum,            // Somma dei quadrati dei pixel del template
+    double templateSum,             // Somma dei pixel del template
+    double templateSqSum,           // Somma dei quadrati dei pixel del template
     int width, int height,          // Dimensioni dell'immagine
     int kx, int ky,                 // Dimensioni del template
     cv::Mat &ssdResult)             // Matrice di output per i risultati SSD
@@ -178,7 +178,7 @@ __global__ void computeSSD(
     double S2 = getRegionSum(imageSqSum, width, height, x, y, kx, ky); // Somma dei quadrati
 
     // Calcolo SSD diretto usando le somme
-    double ssd = S2 - 2 * (S1 * templateSum) + templateSqSum;
+    double ssd = S2 + templateSqSum - 2 * (S1 * templateSum);
 
     ssdResult[INDEX(x, y, width - kx + 1)] = ssd;
 }
@@ -218,14 +218,16 @@ cudaError_t templateMatchingSSD(
     // Calcolo delle somme del template
     double templateSum = 0;
     double templateSqSum = 0;
-    for (int i = 0; i < kx * ky; i++)
-    {
-        double val = templint.ptr<double>()[i];
-        templateSum += val;
-        templateSqSum += val * val;
-    }
-    // Allocazione memoria su device
-    double *d_image, *d_imageSum, *d_imageSqSum, *d_ssdResult, *d_rowSum, *d_imageSq, *d_rowSqSum;
+    // for (int i = 0; i < kx * ky; i++)
+    //{
+    //     double val = templint.ptr<double>()[i];
+    //     templateSum += val;
+    //     templateSqSum += val * val;
+    // }
+    //  Allocazione memoria su device
+    double *d_image, *d_imageSum, *d_imageSqSum, *d_ssdResult, *d_rowSum, *d_imageSq, *d_rowSqSum, *d_templSum, *d_templSqSum;
+
+    size_t templSize = kx * ky * sizeof(double);
     size_t imageSize = width * height * sizeof(double);
     size_t resultSize = (width - kx + 1) * (height - ky + 1) * sizeof(double);
 
@@ -260,6 +262,14 @@ cudaError_t templateMatchingSSD(
     if (cudaStatus != cudaSuccess)
         return cudaStatus;
 
+    cudaStatus = cudaMalloc(&d_templSum, templSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    cudaStatus = cudaMalloc(&d_templSqSum, imageSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
     // Copia immagine su device e creazione immagine dei quadrati
     cudaStatus = cudaMemcpy(d_image, imageint.ptr<double>(), imageSize, cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess)
@@ -280,13 +290,43 @@ cudaError_t templateMatchingSSD(
         (height + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
     // Calcolo immagini integrali
-    rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_image, d_rowSum, width, height);
-    colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSum, d_imageSum, width, height);
+    // rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_image, d_rowSum, width, height);
+    // colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSum, d_imageSum, width, height);
 
     // multiply<<<gridSize, blockSize>>>(d_image, width, height, d_imageSq);
-    rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_imageSq, d_rowSqSum, width, height);
-    colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSqSum, d_imageSqSum, width, height);
+    // rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_imageSq, d_rowSqSum, width, height);
+    // colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSqSum, d_imageSqSum, width, height);
+    cv::Mat integral_img;
+    cv::integral(imageint, integral_img, CV_64F);
+    cudaStatus = cudaMemcpy(d_imageSum, integral_img.ptr<double>(), imageSize, cudaMemcpyHostToDevice);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+    cv::Mat integral_Sq_img;
+    cv::integral(imageSq, integral_Sq_img, CV_64F);
+    cudaStatus = cudaMemcpy(d_imageSqSum, integral_Sq_img.ptr<double>(), imageSize, cudaMemcpyHostToDevice);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+    // template
+    cv::Mat temp_integral_img;
+    cv::integral(templint, temp_integral_img, CV_64F);
+    cudaStatus = cudaMemcpy(d_templSum, temp_integral_img.ptr<double>(), templSize, cudaMemcpyHostToDevice);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+    // templatesq
+    cv::Mat templeSq;
+    cv::multiply(templint, templint, templeSq);
+    
+    cv::Mat temp_integral_Sq_img;
+    cv::integral(templeSq, temp_integral_Sq_img, CV_64F);
+    cudaStatus = cudaMemcpy(d_templSqSum, temp_integral_Sq_img.ptr<double>(), templSize, cudaMemcpyHostToDevice);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
 
+    //     int last_value = mat.at<int>(mat.rows - 1, mat.cols - 1);
+    templateSum = temp_integral_img.at<double>(kx- 1, ky-1);
+    templateSqSum = temp_integral_Sq_img.at<double>(kx- 1, ky-1);
+
+    
     // Copia delle immagini integrali calcolate da CUDA su host
     cv::Mat cudaIntegralImage(height, width, CV_64F);
     cv::Mat cudaIntegralSqImage(height, width, CV_64F);
@@ -371,6 +411,10 @@ cudaError_t templateMatchingSSD(
     stampMta(cudaIntegralSqImage, cudaIntegralSqImage.rows, cudaIntegralSqImage.cols);
     std::cout << "Matrice immagine template:" << std::endl;
     stampMta(templint, templint.rows, templint.cols);
+    std::cout << "Matrice sum template:" << std::endl;
+    stampMta(temp_integral_img, temp_integral_img.rows, temp_integral_img.cols);
+    std::cout << "Matrice sum sq template:" << std::endl;
+    stampMta(temp_integral_Sq_img, temp_integral_Sq_img.rows, temp_integral_Sq_img.cols);
     std::cout << "template:" << std::endl;
     std::cout << templateSum << "\n";
     std::cout << templateSqSum << "\n";
@@ -428,11 +472,11 @@ int main()
     cv::rectangle(
         imageColor,
         bestLocSeq,
-        cv::Point(bestLocSeq.x /scaleFactor+ templ.cols, bestLocSeq.y/scaleFactor + templ.rows),
+        cv::Point(bestLocSeq.x / scaleFactor + templ.cols, bestLocSeq.y / scaleFactor + templ.rows),
         cv::Scalar(0, 255, 0),
         2);
-    bestLoc.x = static_cast<int>(bestLoc.x)/scaleFactor;
-    bestLoc.y = static_cast<int>(bestLoc.y)/scaleFactor;
+    bestLoc.x = static_cast<int>(bestLoc.x) / scaleFactor;
+    bestLoc.y = static_cast<int>(bestLoc.y) / scaleFactor;
     cv::Rect matchRect(bestLoc, cv::Size(templ.cols, templ.rows));
     rectangle(imageColor, matchRect, cv::Scalar(255, 0, 0), 2);
     // Mostra il risultato
