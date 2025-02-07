@@ -438,9 +438,9 @@ cudaError_t templateMatchingSSD(
 int main()
 {
     // Carica le immagini
-    cv::Mat image = cv::imread("immagini/sourceT.jpg", cv::IMREAD_GRAYSCALE);
-    cv::Mat imageColor = cv::imread("immagini/sourceT.jpg", cv::IMREAD_COLOR);
-    cv::Mat templ = cv::imread("immagini/templateT.jpg", cv::IMREAD_GRAYSCALE);
+    cv::Mat image = cv::imread("immagini/source.jpg", cv::IMREAD_GRAYSCALE);
+    cv::Mat imageColor = cv::imread("immagini/source.jpg", cv::IMREAD_COLOR);
+    cv::Mat templ = cv::imread("immagini/sourceA.jpg", cv::IMREAD_GRAYSCALE);
     double scaleFactor = 1; // Fattore di ridimensionamento
     cv::Mat imageR, templateR;
     cv::resize(image, imageR, cv::Size(), scaleFactor, scaleFactor, cv::INTER_LINEAR);

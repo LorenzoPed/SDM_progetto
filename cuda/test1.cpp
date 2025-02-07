@@ -1,8 +1,6 @@
 #include <opencv2/opencv.hpp>
 #include <stdio.h>
 
-#define INDEX(x, y, width) ((y) * (width) + (x))
-#define BLOCK_SIZE 32
 
 // immagine integrele in manaore sequanziale
 void computeIntegralImagesSequential(const cv::Mat &image, cv::Mat &integralImage, cv::Mat &integralSqImage)
@@ -61,10 +59,10 @@ void computeSSDSequentialWithIntegrals(
     float templateSqSum,             // Somma dei quadrati dei pixel del template
     int width, int height,           // Dimensioni dell'immagine
     int kx, int ky,                  // Dimensioni del template
-    cv::Mat &ssdResult,              // Matrice di output per i risultati SSD
+    cv::Mat &cvSSD,              // Matrice di output per i risultati SSD
     const cv::Mat &crossCorrelation) // Matrice con i valori di cross correletion
 {
-    ssdResult.create(height - ky + 1, width - kx + 1, CV_32F);
+    cvSSD.create(height - ky + 1, width - kx + 1, CV_32F);
 
     for (int y = 0; y < height - ky + 1; y++)
     {
@@ -77,7 +75,7 @@ void computeSSDSequentialWithIntegrals(
             // Calcola l'SSD
             // float ssd = S2 - 2 * (S1 * templateSum) + templateSqSum;
             float ssd = S2 - 2 * SC + templateSqSum;
-            ssdResult.at<float>(y, x) = ssd;
+            cvSSD.at<float>(y, x) = ssd;
         }
     }
 }
@@ -104,7 +102,7 @@ void stampMta(const cv::Mat &image, int height, int width)
     {
         for (int x = 0; x < 10; ++x)
         {
-            std::cout << image.at<float>(height-10+ y, width -10 + x) << "\t";
+            std::cout << image.at<float>(height - 10 + y, width - 10 + x) << "\t";
         }
         std::cout << std::endl;
     }
@@ -118,8 +116,8 @@ void seq_templateMatchingSSD(
     // Conversione delle immagini in float
     // image.convertTo(imagefloat, CV_32F, 1.0 / 255.0); // Normalizza i valori tra 0 e 1
     cv::Mat imageint, templint;
-    image.convertTo(imageint, CV_32F, 1.0 /255.0 );
-    templ.convertTo(templint, CV_32F, 1.0 /255.0 );
+    image.convertTo(imageint, CV_32F, 1.0 / 255.0);
+    templ.convertTo(templint, CV_32F, 1.0 / 255.0);
 
     int width = image.cols;
     int height = image.rows;
@@ -135,40 +133,40 @@ void seq_templateMatchingSSD(
     cv::multiply(imageint, imageint, imageSq);
 
     // Creazione dell'immagine integrale
-    cv::Mat integral_img;
-    cv::integral(imageint, integral_img, CV_32F);
-    integral_img = integral_img(cv::Rect(1, 1, image.cols, image.rows));
+    cv::Mat integral_imgCV;
+    cv::integral(imageint, integral_imgCV, CV_32F);
+    integral_imgCV = integral_imgCV(cv::Rect(1, 1, image.cols, image.rows));
 
     // Creazione dell'immagine integrale dei quadrati
-    cv::Mat integral_Sq_img;
-    cv::integral(imageSq, integral_Sq_img, CV_32F);
-    integral_Sq_img = integral_Sq_img(cv::Rect(1, 1, image.cols, image.rows));
+    cv::Mat integral_Sq_imgCV;
+    cv::integral(imageSq, integral_Sq_imgCV, CV_32F);
+    integral_Sq_imgCV = integral_Sq_imgCV(cv::Rect(1, 1, image.cols, image.rows));
 
     // Creazione dell'immagine dei quadrati del template
     cv::Mat templeSq;
     cv::multiply(templint, templint, templeSq);
 
     // Creazione dell'immagine integrale del template
-    cv::Mat temp_integral_img;
-    cv::integral(templint, temp_integral_img, CV_32F);
-    temp_integral_img = temp_integral_img(cv::Rect(1, 1, templ.cols, templ.rows));
+    cv::Mat temp_integral_imgCV;
+    cv::integral(templint, temp_integral_imgCV, CV_32F);
+    temp_integral_imgCV = temp_integral_imgCV(cv::Rect(1, 1, templ.cols, templ.rows));
 
     // Creazione dell'immagine integrale dei quadrati del template
-    cv::Mat temp_integral_Sq_img;
-    cv::integral(templeSq, temp_integral_Sq_img, CV_32F);
-    temp_integral_Sq_img = temp_integral_Sq_img(cv::Rect(1, 1, templ.cols, templ.rows));
+    cv::Mat temp_integral_Sq_imgCV;
+    cv::integral(templeSq, temp_integral_Sq_imgCV, CV_32F);
+    temp_integral_Sq_imgCV = temp_integral_Sq_imgCV(cv::Rect(1, 1, templ.cols, templ.rows));
 
     // Estrazione dei valori totali del template
-    templateSum = temp_integral_img.at<float>(ky - 1, kx - 1);
-    templateSqSum = temp_integral_Sq_img.at<float>(ky - 1, kx - 1);
+    templateSum = temp_integral_imgCV.at<float>(ky - 1, kx - 1);
+    templateSqSum = temp_integral_Sq_imgCV.at<float>(ky - 1, kx - 1);
 
     // Calcolo delle immagini integrali sequenziali
     cv::Mat seqIntegralImage, seqIntegralSqImage;
     computeIntegralImagesSequential(imageint, seqIntegralImage, seqIntegralSqImage);
 
     // Confronto delle immagini integrali
-    bool integralMatch = compareImages(integral_img, seqIntegralImage);
-    bool integralSqMatch = compareImages(integral_Sq_img, seqIntegralSqImage);
+    bool integralMatch = compareImages(integral_imgCV, seqIntegralImage);
+    bool integralSqMatch = compareImages(integral_Sq_imgCV, seqIntegralSqImage);
 
     if (!integralMatch || !integralSqMatch)
     {
@@ -180,23 +178,20 @@ void seq_templateMatchingSSD(
         printf("Ottimo: Le immagini integrali calcolate da OpenCV corrispondono a quelle sequenziali.\n");
     }
 
-    // cv::Mat flippedTemplate;
-    // cv::flip(templint, flippedTemplate, -1); // Flip orizzontale e verticale
 
     cv::Mat crossCorrelation;
-    // cv::filter2D(imageint, crossCorrelation, CV_32F, flippedTemplate);
     cv::matchTemplate(imageint, templint, crossCorrelation, cv::TM_CCORR);
     // test funzione openCV
-    cv::Mat matchSSD;
-    cv::matchTemplate(imageint, templint, matchSSD, cv::TM_SQDIFF);
+    // cv::Mat matchSSD;
+    // cv::matchTemplate(imageint, templint, matchSSD, cv::TM_SQDIFF);
 
-    cv::Mat ssdResult;
-    computeSSDSequentialWithIntegrals(integral_img, integral_Sq_img, templateSum, templateSqSum, width, height, kx, ky, ssdResult, crossCorrelation);
-    cv::Mat seqSSDResult;
-    computeSSDSequentialWithIntegrals(seqIntegralImage, seqIntegralSqImage, templateSum, templateSqSum, width, height, kx, ky, seqSSDResult, crossCorrelation);
+    cv::Mat cvSSD;
+    computeSSDSequentialWithIntegrals(integral_imgCV, integral_Sq_imgCV, templateSum, templateSqSum, width, height, kx, ky, cvSSD, crossCorrelation);
+    cv::Mat seqSSD;
+    computeSSDSequentialWithIntegrals(seqIntegralImage, seqIntegralSqImage, templateSum, templateSqSum, width, height, kx, ky, seqSSD, crossCorrelation);
 
     // Confronto dei risultati SSD
-    bool ssdMatch = compareImages(ssdResult, seqSSDResult);
+    bool ssdMatch = compareImages(cvSSD, seqSSD);
     if (!ssdMatch)
     {
         printf("Errore: I risultati SSD calcolati con matrici int OpenCV non corrispondono a quelli sequenziali.\n");
@@ -207,46 +202,46 @@ void seq_templateMatchingSSD(
     }
 
     // Trova la posizione del minimo SSD
-   // double minVal, maxVal;
-   // cv::Point minLoc, maxLoc;
-   // cv::minMaxLoc(crossCorrelation, &minVal, &maxVal, &minLoc, &maxLoc);
-   // *bestLoc = minLoc;
+    // double minVal, maxVal;
+    // cv::Point minLoc, maxLoc;
+    // cv::minMaxLoc(crossCorrelation, &minVal, &maxVal, &minLoc, &maxLoc);
+    // *bestLoc = minLoc;
 
     double minValSeq, maxValSeq;
     cv::Point minLocSeq, maxLocSeq;
-    cv::minMaxLoc(seqSSDResult, &minValSeq, &maxValSeq, &minLocSeq, &maxLocSeq);
+    cv::minMaxLoc(seqSSD, &minValSeq, &maxValSeq, &minLocSeq, &maxLocSeq);
     *bestLocSeq = minLocSeq;
 
     std::cout << "Matrice immagine:" << std::endl;
     stampMta(imageint, imageint.rows, imageint.cols);
     std::cout << std::endl;
     std::cout << "Matrice immagine integrale OpenCV:" << std::endl;
-    stampMta(integral_img, integral_img.rows, integral_img.cols);
+    stampMta(integral_imgCV, integral_imgCV.rows, integral_imgCV.cols);
     std::cout << std::endl;
     std::cout << "Matrice immagine integrale calcolata:" << std::endl;
     stampMta(seqIntegralImage, seqIntegralImage.rows, seqIntegralImage.cols);
     std::cout << std::endl;
     std::cout << "Matrice immagine integrale quadratica OpenCV:" << std::endl;
-    stampMta(integral_Sq_img, integral_Sq_img.rows, integral_Sq_img.cols);
+    stampMta(integral_Sq_imgCV, integral_Sq_imgCV.rows, integral_Sq_imgCV.cols);
     std::cout << std::endl;
     std::cout << "Matrice immagine integrale quadratica calcolata:" << std::endl;
     stampMta(seqIntegralSqImage, seqIntegralSqImage.rows, seqIntegralSqImage.cols);
     std::cout << std::endl;
     std::cout << "Matrice sum template:" << std::endl;
-    stampMta(temp_integral_img, temp_integral_img.rows, temp_integral_img.cols);
+    stampMta(temp_integral_imgCV, temp_integral_imgCV.rows, temp_integral_imgCV.cols);
     std::cout << std::endl;
     std::cout << "Matrice sum sq template:" << std::endl;
-    stampMta(temp_integral_Sq_img, temp_integral_Sq_img.rows, temp_integral_Sq_img.cols);
+    stampMta(temp_integral_Sq_imgCV, temp_integral_Sq_imgCV.rows, temp_integral_Sq_imgCV.cols);
     std::cout << std::endl;
     std::cout << "template:" << std::endl;
     std::cout << templateSum << "\n";
     std::cout << templateSqSum << "\n";
     std::cout << std::endl;
     std::cout << "Matrice SSD result OpevCV:" << std::endl;
-    stampMta(ssdResult, ssdResult.rows, ssdResult.cols);
+    stampMta(cvSSD, cvSSD.rows, cvSSD.cols);
     std::cout << std::endl;
     std::cout << "Matrice SSD result calcolata:" << std::endl;
-    stampMta(seqSSDResult, seqSSDResult.rows, seqSSDResult.cols);
+    stampMta(seqSSD, seqSSD.rows, seqSSD.cols);
     std::cout << std::endl;
     std::cout << "Matrice cross correlation:" << std::endl;
     stampMta(crossCorrelation, crossCorrelation.rows, crossCorrelation.cols);
@@ -254,17 +249,17 @@ void seq_templateMatchingSSD(
 int main()
 {
     // Carica le immagini
-    cv::Mat image = cv::imread("immagini/sourceA.jpg", cv::IMREAD_GRAYSCALE);
-    cv::Mat imageColor = cv::imread("immagini/sourceA.jpg", cv::IMREAD_COLOR);
-    cv::Mat templ = cv::imread("immagini/templateA.jpg", cv::IMREAD_GRAYSCALE);
+    cv::Mat image = cv::imread("immagini/source.jpg", cv::IMREAD_GRAYSCALE);
+    cv::Mat imageColor = cv::imread("immagini/source.jpg", cv::IMREAD_COLOR);
+    cv::Mat templ = cv::imread("immagini/sourceA.jpg", cv::IMREAD_GRAYSCALE);
     float scaleFactor = 1; // Fattore di ridimensionamento
     cv::Mat imageR, templateR;
     cv::resize(image, imageR, cv::Size(), scaleFactor, scaleFactor, cv::INTER_LINEAR);
     cv::resize(templ, templateR, cv::Size(), scaleFactor, scaleFactor, cv::INTER_LINEAR);
     std::cout << "Immagine dimensioni:" << "\t";
-    std::cout << imageR.cols << " x " << imageR.rows << std::endl;
+    std::cout << imageR.rows << " x " << imageR.cols << std::endl;
     std::cout << "Template dimensioni:" << "\t";
-    std::cout << templateR.cols << " x " << templateR.rows << std::endl;
+    std::cout << templateR.rows << " x " << templateR.cols << std::endl;
 
     if (image.empty() || templ.empty())
     {
@@ -275,23 +270,17 @@ int main()
     cv::Point bestLocSeq;
     seq_templateMatchingSSD(imageR, templateR, &bestLoc, &bestLocSeq);
 
-    // Disegna un rettangolo intorno al match trovato
-    //  cv::rectangle(
-    //      imageColor,
-    //      bestLoc,
-    //      cv::Point(bestLoc.x/scaleFactor + templ.cols, bestLoc.y/scaleFactor + templ.rows),
-    //      cv::Scalar(0, 0, 255),
-    //      3);
 
     bestLocSeq.x = static_cast<int>(bestLocSeq.x) / scaleFactor;
     bestLocSeq.y = static_cast<int>(bestLocSeq.y) / scaleFactor;
     cv::Rect matchRectSeq(bestLocSeq, cv::Size(templ.cols, templ.rows));
-    rectangle(imageColor, matchRectSeq, cv::Scalar(0, 255, 0), 3);
+    rectangle(imageColor, matchRectSeq, cv::Scalar(0, 255, 0), 2);
 
-   // bestLoc.x = static_cast<int>(bestLoc.x) / scaleFactor;
-   // bestLoc.y = static_cast<int>(bestLoc.y) / scaleFactor;
-   // cv::Rect matchRect(bestLoc, cv::Size(templ.cols, templ.rows));
-   // rectangle(imageColor, matchRect, cv::Scalar(255, 0, 0), 2);
+    // bestLoc.x = static_cast<int>(bestLoc.x) / scaleFactor;
+    // bestLoc.y = static_cast<int>(bestLoc.y) / scaleFactor;
+    // cv::Rect matchRect(bestLoc, cv::Size(templ.cols, templ.rows));
+    // rectangle(imageColor, matchRect, cv::Scalar(255, 0, 0), 2);
+   
     // Mostra il risultato
     cv::imwrite("Result.jpg", imageColor);
     cv::namedWindow("Immagine principale", cv::WINDOW_NORMAL);
