@@ -127,18 +127,18 @@ void seq_templateMatchingSSD(
     float templateSqSum = 0;
 
     // Creazione dell'immagine dei quadrati
-   // cv::Mat imageSq;
-   // cv::multiply(imageN, imageN, imageSq);
+    // cv::Mat imageSq;
+    // cv::multiply(imageN, imageN, imageSq);
 
-   // Creazione dell'immagine integrale
-   // cv::Mat integral_imgCV;
-   // cv::integral(imageN, integral_imgCV, CV_32F);
-   // integral_imgCV = integral_imgCV(cv::Rect(1, 1, image.cols, image.rows));
+    // Creazione dell'immagine integrale
+    // cv::Mat integral_imgCV;
+    // cv::integral(imageN, integral_imgCV, CV_32F);
+    // integral_imgCV = integral_imgCV(cv::Rect(1, 1, image.cols, image.rows));
 
-   // Creazione dell'immagine integrale dei quadrati
-   // cv::Mat integral_Sq_imgCV;
-   // cv::integral(imageSq, integral_Sq_imgCV, CV_32F);
-   // integral_Sq_imgCV = integral_Sq_imgCV(cv::Rect(1, 1, image.cols, image.rows));
+    // Creazione dell'immagine integrale dei quadrati
+    // cv::Mat integral_Sq_imgCV;
+    // cv::integral(imageSq, integral_Sq_imgCV, CV_32F);
+    // integral_Sq_imgCV = integral_Sq_imgCV(cv::Rect(1, 1, image.cols, image.rows));
 
     // Creazione dell'immagine dei quadrati del template
     cv::Mat templeSq;
@@ -242,4 +242,68 @@ void seq_templateMatchingSSD(
     // std::cout << std::endl;
     // std::cout << "Matrice cross correlation:" << std::endl;
     // stampMta(crossCorrelation, crossCorrelation.rows, crossCorrelation.cols);
+}
+
+cv::Mat crossCorrelationFFT(const cv::Mat &image, const cv::Mat &kernel)
+{
+    // 1. Prepara le immagini e il kernel per la FFT
+
+    // Ottieni le dimensioni ottimali per la FFT (potenze di 2 per efficienza)
+    int m = cv::getOptimalDFTSize(image.rows + kernel.rows - 1);
+    int n = cv::getOptimalDFTSize(image.cols + kernel.cols - 1);
+
+    // Padding delle immagini e del kernel per le dimensioni ottimali
+    cv::Mat paddedImage, paddedKernel;
+    cv::copyMakeBorder(image, paddedImage, 0, m - image.rows, 0, n - image.cols, cv::BORDER_CONSTANT, cv::Scalar::all(0));
+    cv::copyMakeBorder(kernel, paddedKernel, 0, m - kernel.rows, 0, n - kernel.cols, cv::BORDER_CONSTANT, cv::Scalar::all(0));
+
+    // 2. Calcola le FFT
+
+    cv::Mat imageComplex, kernelComplex, kernelFFT, imageFFT;
+
+    // Converti le immagini in virgola mobile e crea matrici complesse per la FFT
+    paddedImage.convertTo(paddedImage, CV_32F);
+    paddedKernel.convertTo(paddedKernel, CV_32F);
+
+    cv::Mat zeroPaddingImage = cv::Mat::zeros(paddedImage.size(), CV_32F);
+    cv::Mat zeroPaddingKernel = cv::Mat::zeros(paddedKernel.size(), CV_32F);
+
+    cv::Mat imagePlanes[] = {paddedImage, zeroPaddingImage};
+    cv::Mat kernelPlanes[] = {paddedKernel, zeroPaddingKernel};
+
+    cv::merge(imagePlanes, 2, imageComplex);
+    cv::merge(kernelPlanes, 2, kernelComplex);
+
+    cv::dft(imageComplex, imageFFT, 0, image.rows);
+    cv::dft(kernelComplex, kernelFFT, 0, kernel.rows);
+
+    // 3. Moltiplicazione nel dominio della frequenza (e coniugazione per cross-correlazione)
+
+    cv::Mat kernelFFTConjugated;
+    kernelFFTConjugated = kernelFFT.clone(); // Clona kernelFFT
+    // Inverti la parte immaginaria per ottenere il complesso coniugato
+    for (int i = 0; i < kernelFFTConjugated.rows; ++i)
+    {
+        for (int j = 0; j < kernelFFTConjugated.cols; ++j)
+        {
+            kernelFFTConjugated.at<cv::Vec2f>(i, j)[1] *= -1; // Moltiplica la parte immaginaria per -1
+        }
+    }
+
+    cv::Mat resultFFT;
+    cv::mulSpectrums(imageFFT, kernelFFTConjugated, resultFFT, 0); // Moltiplicazione punto a punto
+
+    // 4. Trasformata di Fourier Inversa
+
+    cv::Mat resultComplex;
+    cv::dft(resultFFT, resultComplex, cv::DFT_INVERSE | cv::DFT_SCALE | cv::DFT_REAL_OUTPUT, image.rows); // FFT Inversa
+
+    // 5. Ritaglia la parte valida del risultato (rimuovi il padding)
+
+    cv::Mat crossCorrelationResult;
+    cv::Mat crossCorrelationResultF;
+    cv::Rect roi(0, 0, image.cols - kernel.cols + 1, image.rows - kernel.rows + 1); // Calcola la ROI valida
+    crossCorrelationResult = resultComplex(roi);
+    crossCorrelationResult.convertTo(crossCorrelationResultF, CV_32F);
+    return crossCorrelationResultF;
 }

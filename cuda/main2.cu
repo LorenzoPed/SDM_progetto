@@ -249,8 +249,8 @@ cudaError_t templateMatchingSSD(
 
     // calcolo matrice cross correlation
     cv::Mat crossCorrelation;
-    cv::matchTemplate(imageN, templN, crossCorrelation, cv::TM_CCORR);
-
+   // cv::matchTemplate(imageN, templN, crossCorrelation, cv::TM_CCORR);
+    crossCorrelation = crossCorrelationFFT(imageN, templN);
     cudaStatus = cudaMemcpy(d_crossCorrelation, crossCorrelation.ptr<float>(), resultSize, cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess)
         return cudaStatus;
@@ -320,6 +320,8 @@ cudaError_t templateMatchingSSD(
     stampMta(ssdResult, ssdResult.rows, ssdResult.cols);
     std::cout << "Matrice SSD result seq:" << std::endl;
     stampMta(seqSSDResult, seqSSDResult.rows, seqSSDResult.cols);
+    std::cout << "Cross correlation" << std::endl;
+    stampMta(crossCorrelation, crossCorrelation.rows, crossCorrelation.cols);
 
     // Cleanup
     cudaFree(d_image);
@@ -366,16 +368,16 @@ int main()
     // Disegna un rettangolo intorno al match trovato
 
     // risultato template matching BLUE
-    LocCheck.x = static_cast<int>(LocCheck.x) / scaleFactor;
-    LocCheck.y = static_cast<int>(LocCheck.y) / scaleFactor;
-    cv::Rect matchRectTM(LocCheck, cv::Size(templ.cols, templ.rows));
-    rectangle(imageColor, matchRectTM, cv::Scalar(255, 0, 0), 3);
+    //  LocCheck.x = static_cast<int>(LocCheck.x) / scaleFactor;
+    //  LocCheck.y = static_cast<int>(LocCheck.y) / scaleFactor;
+    //  cv::Rect matchRectTM(LocCheck, cv::Size(templ.cols, templ.rows));
+    //  rectangle(imageColor, matchRectTM, cv::Scalar(255, 0, 0), 3);
 
     // risultato sequenziale  ROSSO
-    bestLocSeq.x = static_cast<int>(bestLocSeq.x) / scaleFactor;
-    bestLocSeq.y = static_cast<int>(bestLocSeq.y) / scaleFactor;
-    cv::Rect matchRectSeq(bestLocSeq, cv::Size(templ.cols, templ.rows));
-    rectangle(imageColor, matchRectSeq, cv::Scalar(0, 0, 255), 3);
+    // bestLocSeq.x = static_cast<int>(bestLocSeq.x) / scaleFactor;
+    // bestLocSeq.y = static_cast<int>(bestLocSeq.y) / scaleFactor;
+    // cv::Rect matchRectSeq(bestLocSeq, cv::Size(templ.cols, templ.rows));
+    // rectangle(imageColor, matchRectSeq, cv::Scalar(0, 0, 255), 3);
 
     // risultato cuda VERDE
     bestLoc.x = static_cast<int>(bestLoc.x) / scaleFactor;
