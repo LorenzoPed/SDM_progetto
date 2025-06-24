@@ -57,14 +57,14 @@ __device__ int getRegionSum(const float *sumTable, int width, int height, int x,
     return D - B - C + A;
 }
 
-// Kernel CUDA ottimizzato per calcolare SSD
+// Kernel CUDA calcolare SSD
 __global__ void computeSSD(
     float *imageSqSum,    // Immagine integrale dei quadrati
     float *templateSqSum, // Somma dei quadrati dei pixel del template
-    int width,
-    int height,
-    int kx,
-    int ky,
+    int width,            // x immagine
+    int height,           // y immagine
+    int kx,               // x template
+    int ky,               // y template
     float *ssdResult,
     float *crossCorrelation)
 {
@@ -75,7 +75,6 @@ __global__ void computeSSD(
         return;
 
     // Calcolo delle somme usando le immagini integrali
-    //    float S1 = getRegionSum(imageSum, width, height, x, y, kx, ky);   // Somma della regione immagine
     float S2 = getRegionSum(imageSqSum, width, height, x, y, kx, ky); // Somma dei quadrati
     float SC = crossCorrelation[INDEX(x, y, width - kx + 1)];
     // Calcolo SSD diretto usando le somme
@@ -104,8 +103,7 @@ cudaError_t templateMatchingSSD(
     const cv::Mat &templ,
     cv::Point *bestLoc)
 {
-    // Conversione delle immagini in float
-    // image.convertTo(imagefloat, CV_32F, 1.0 / 255.0); // Normalizza i valori tra 0 e 1
+    // Conversione delle immagini in float con valori normalizzati tra 0 e 1
     cv::Mat imageN, templN;
     image.convertTo(imageN, CV_32F, 1.0 / 255.0);
     templ.convertTo(templN, CV_32F, 1.0 / 255.0);
@@ -116,15 +114,8 @@ cudaError_t templateMatchingSSD(
     int ky = templ.rows;
 
     // Calcolo delle somme del template
-    float templateSum = 0;
     float templateSqSum = 0;
-    // for (int i = 0; i < kx * ky; i++)
-    //{
-    //     float val = templN.ptr<float>()[i];
-    //     templateSum += val;
-    //     templateSqSum += val * val;
-    // }
-    //  Allocazione memoria su device
+
     float *d_image, *d_imageSqSum, *d_ssdResult, *d_imageSq, *d_rowSqSum, *d_templ, *d_templSq, *d_TrowSqSum, *d_templSqSum, *d_crossCorrelation, *d_templateSqSumLV;
 
     size_t templSize = kx * ky * sizeof(float);
@@ -178,7 +169,7 @@ cudaError_t templateMatchingSSD(
     if (cudaStatus != cudaSuccess)
         return cudaStatus;
 
-    // Copia immagine su device e creazione immagine dei quadrati
+    // Copia immagine su device
     cudaStatus = cudaMemcpy(d_image, imageN.ptr<float>(), imageSize, cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess)
         return cudaStatus;
@@ -186,13 +177,6 @@ cudaError_t templateMatchingSSD(
     cudaStatus = cudaMemcpy(d_templ, templN.ptr<float>(), templSize, cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess)
         return cudaStatus;
-
-    // Creazione dell'immagine dei quadrati
-    // cv::Mat imageSq;
-    // cv::multiply(imageN, imageN, imageSq);
-    // cudaStatus = cudaMemcpy(d_imageSq, imageSq.ptr<float>(), imageSize, cudaMemcpyHostToDevice);
-    // if (cudaStatus != cudaSuccess)
-    //     return cudaStatus;
 
     // Calcolo delle immagini integrali
     int threadsPerBlock = BLOCK_SIZE;
@@ -202,8 +186,7 @@ cudaError_t templateMatchingSSD(
         (height + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
     // Calcolo immagini integrali
-    //   rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_image, d_rowSum, width, height);
-    //   colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSum, d_imageSum, width, height);
+    // Immagine
     multiply<<<gridSize, blockSize>>>(d_image, width, height, d_imageSq);
     rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_imageSq, d_rowSqSum, width, height);
     colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSqSum, d_imageSqSum, width, height);
@@ -212,66 +195,22 @@ cudaError_t templateMatchingSSD(
         (kx + BLOCK_SIZE - 1) / BLOCK_SIZE,
         (ky + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
+    // Template
     multiply<<<gridSizeT, blockSize>>>(d_templ, kx, ky, d_templSq);
     rowCumSum<<<(ky + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_templSq, d_TrowSqSum, kx, ky);
     colCumSum<<<(kx + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_TrowSqSum, d_templSqSum, kx, ky);
 
-    // cv::Mat integralSeq_img;
-    // cv::Mat integralSeq_Sq_img;
-    // computeIntegralImagesSequential(imageN, integralSeq_img, integralSeq_Sq_img);
-
-    // template
-    // cv::Mat temp_integral_img;
-    // cv::integral(templN, temp_integral_img, CV_32F);
-    // temp_integral_img = temp_integral_img(cv::Rect(1, 1, templ.cols, templ.rows));
-
-    // templatesq
-    // cv::Mat templeSq;
-    // cv::multiply(templN, templN, templeSq);
-
-    // cv::Mat temp_integral_Sq_img;
-    // cv::integral(templeSq, temp_integral_Sq_img, CV_32F);
-    // temp_integral_Sq_img = temp_integral_Sq_img(cv::Rect(1, 1, templ.cols, templ.rows));
-
-    //     int last_value = mat.at<int>(mat.rows - 1, mat.cols - 1);
-    // templateSum = temp_integral_img.at<float>(ky - 1, kx - 1);
-    // templateSqSum = temp_integral_Sq_img.at<float>(ky - 1, kx - 1);
-
-    // d_templateSqSumLV = d_templSqSum[INDEX(kx - 1, ky - 1, kx)];
-
+    // Copia del last value del template syl davice
     size_t offset = ((ky - 1) * kx + (kx - 1)) * sizeof(float);
     cudaMemcpy(d_templateSqSumLV,
                (char *)d_templSqSum + offset,
                sizeof(float),
                cudaMemcpyDeviceToDevice);
 
-    // Copia delle immagini integrali calcolate da CUDA su host
-    // cv::Mat cudaIntegralSqTemplate(height, width, CV_32F);
-    // cv::Mat cudaIntegralSqImage(height, width, CV_32F);
-
-    // cudaStatus = cudaMemcpy(cudaIntegralSqImage.ptr<float>(), d_imageSqSum, imageSize, cudaMemcpyDeviceToHost);
-    // if (cudaStatus != cudaSuccess)
-    //        return cudaStatus;
-
-    // Confronto delle immagini integrali
-    // bool integralMatch = compareImages(cudaIntegralImage, integralSeq_img);
-    // bool integralSqMatch = compareImages(cudaIntegralSqImage, integralSeq_Sq_img);
-
-    //  if (!integralMatch || !integralSqMatch)
-    //  if (!integralSqMatch)
-    // {
-    //   printf("Errore: Le immagini integrali calcolate da CUDA non corrispondono a quelle sequenziali.\n");
-    // return cudaErrorUnknown;
-    // }
-    // else
-    //{
-    //   printf("Ottimo: Le immagini integrali calcolate da CUDA corrispondono a quelle sequenziali.\n");
-    //}
-
     // calcolo matrice cross correlation
     cv::Mat crossCorrelation;
-    // cv::matchTemplate(imageN, templN, crossCorrelation, cv::TM_CCORR);
     crossCorrelation = crossCorrelationFFT(imageN, templN);
+
     cudaStatus = cudaMemcpy(d_crossCorrelation, crossCorrelation.ptr<float>(), resultSize, cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess)
         return cudaStatus;
@@ -294,53 +233,11 @@ cudaError_t templateMatchingSSD(
     if (cudaStatus != cudaSuccess)
         return cudaStatus;
 
-    // Calcolo SSD sequenziale con immagini integrali
-    // cv::Mat seqSSDResult;
-    // computeSSDSequentialWithIntegrals(integralSeq_img, integralSeq_Sq_img, templateSum, templateSqSum, width, height, kx, ky, seqSSDResult, crossCorrelation);
-
-    // Confronto dei risultati SSD
-    // bool ssdMatch = compareImages(ssdResult, seqSSDResult);
-    // if (!ssdMatch)
-    //{
-    //    printf("Errore: I risultati SSD calcolati da CUDA non corrispondono a quelli sequenziali.\n");
-    //}
-    // else
-    //{
-    //    printf("Ottimo: I risultati SSD calcolati da CUDA corrispondono a quelli sequenziali.\n");
-    //}
-
     // Trova la posizione del minimo SSD
     double minVal, maxVal;
     cv::Point minLoc, maxLoc;
     cv::minMaxLoc(ssdResult, &minVal, &maxVal, &minLoc, &maxLoc);
     *bestLoc = minLoc;
-
-    // double minValSeq, maxValSeq;
-    // cv::Point minLocSeq, maxLocSeq;
-    // cv::minMaxLoc(seqSSDResult, &minValSeq, &maxValSeq, &minLocSeq, &maxLocSeq);
-    //*bestLocSeq = minLocSeq;
-
-    // std::cout << "Matrice immagine:" << std::endl;
-    // stampMta(imageN, imageN.rows, imageN.cols);
-    // std::cout << "Matrice immagine integrale:" << std::endl;
-    //  stampMta(cudaIntegralImage, cudaIntegralImage.rows, cudaIntegralImage.cols);
-    //  std::cout << "Matrice immagine integrale al quadrato:" << std::endl;
-    // stampMta(cudaIntegralSqImage, cudaIntegralSqImage.rows, cudaIntegralSqImage.cols);
-    // std::cout << "Matrice immagine template:" << std::endl;
-    // stampMta(templN, templN.rows, templN.cols);
-    // std::cout << "Matrice sum template:" << std::endl;
-    // stampMta(temp_integral_img, temp_integral_img.rows, temp_integral_img.cols);
-    // std::cout << "Matrice sum sq template:" << std::endl;
-    // stampMta(temp_integral_Sq_img, temp_integral_Sq_img.rows, temp_integral_Sq_img.cols);
-    // std::cout << "template:" << std::endl;
-    // std::cout << templateSum << "\n";
-    // std::cout << templateSqSum << "\n";
-    // std::cout << "Matrice SSD result:" << std::endl;
-    // stampMta(ssdResult, ssdResult.rows, ssdResult.cols);
-    // std::cout << "Matrice SSD result seq:" << std::endl;
-    // stampMta(seqSSDResult, seqSSDResult.rows, seqSSDResult.cols);
-    // std::cout << "Cross correlation" << std::endl;
-    // stampMta(crossCorrelation, crossCorrelation.rows, crossCorrelation.cols);
 
     // Cleanup
     cudaFree(d_image);

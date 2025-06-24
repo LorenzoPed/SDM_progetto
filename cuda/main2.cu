@@ -73,7 +73,7 @@ __global__ void computeSSD(
         return;
 
     // Calcolo delle somme usando le immagini integrali
-    float S1 = getRegionSum(imageSum, width, height, x, y, kx, ky);   // Somma della regione immagine
+    //    float S1 = getRegionSum(imageSum, width, height, x, y, kx, ky);   // Somma della regione immagine
     float S2 = getRegionSum(imageSqSum, width, height, x, y, kx, ky); // Somma dei quadrati
     float SC = crossCorrelation[INDEX(x, y, width - kx + 1)];
     // Calcolo SSD diretto usando le somme
@@ -193,8 +193,8 @@ cudaError_t templateMatchingSSD(
         (height + BLOCK_SIZE - 1) / BLOCK_SIZE);
 
     // Calcolo immagini integrali
-    rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_image, d_rowSum, width, height);
-    colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSum, d_imageSum, width, height);
+    //   rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_image, d_rowSum, width, height);
+    //   colCumSum<<<(width + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_rowSum, d_imageSum, width, height);
 
     multiply<<<gridSize, blockSize>>>(d_image, width, height, d_imageSq);
     rowCumSum<<<(height + threadsPerBlock - 1) / threadsPerBlock, threadsPerBlock>>>(d_imageSq, d_rowSqSum, width, height);
