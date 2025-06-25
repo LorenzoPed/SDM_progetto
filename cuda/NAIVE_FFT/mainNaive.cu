@@ -1,6 +1,9 @@
 #include <cuda_runtime.h>
 #include <device_launch_parameters.h>
 #include <opencv2/opencv.hpp>
+#include <cufft.h>
+#include <thrust/device_ptr.h>
+#include <thrust/extrema.h>
 #include <stdio.h>
 #include <chrono>
 #include <iostream>
@@ -66,7 +69,8 @@ __global__ void computeSSD(
     int kx,               // x template
     int ky,               // y template
     float *ssdResult,
-    float *crossCorrelation)
+    float *crossCorrelation,
+    int paddedCols)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -76,14 +80,14 @@ __global__ void computeSSD(
 
     // Calcolo delle somme usando le immagini integrali
     float S2 = getRegionSum(imageSqSum, width, height, x, y, kx, ky); // Somma dei quadrati
-    float SC = crossCorrelation[INDEX(x, y, width - kx + 1)];
-    // Calcolo SSD diretto usando le somme
+    float SC = crossCorrelation[INDEX(x, y, paddedCols)];
+    // Calcolo SSD 
     float ssd = S2 - 2 * SC + (*templateSqSum);
 
     ssdResult[INDEX(x, y, width - kx + 1)] = ssd;
 }
 __global__ void multiply(
-    float *image, // Immagine sorgente
+    float *image, 
     int width,
     int height,
     float *d_imageSq)
@@ -95,6 +99,55 @@ __global__ void multiply(
         return;
 
     d_imageSq[INDEX(x, y, width)] = image[INDEX(x, y, width)] * image[INDEX(x, y, width)];
+}
+
+// Kernel per padding a zero
+__global__ void padToZero(const float *src, float *dst,
+                          int srcRows, int srcCols,
+                          int dstRows, int dstCols)
+{
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    if (y >= dstRows || x >= dstCols)
+        return;
+    int dstIdx = y * dstCols + x;
+    if (y < srcRows && x < srcCols)
+    {
+        dst[dstIdx] = src[y * srcCols + x];
+    }
+    else
+    {
+        dst[dstIdx] = 0.0f;
+    }
+}
+
+// Kernel moltiplicazione complessa coniugata
+__global__ void mulConjAndScale(cufftComplex *imageF,
+                                const cufftComplex *kernelF,
+                                int rows, int colsFreq)
+{
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    if (y >= rows || x >= colsFreq)
+        return;
+    int idx = y * colsFreq + x;
+    cufftComplex A = imageF[idx];
+    cufftComplex B = kernelF[idx];
+    // coniugato di B
+    B.y = -B.y;
+    // moltiplicazione complessa
+    cufftComplex C;
+    C.x = A.x * B.x - A.y * B.y;
+    C.y = A.x * B.y + A.y * B.x;
+    imageF[idx] = C;
+}
+
+// Kernel normalizzazione
+__global__ void normalize(float *data, int totalSize, float scale)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < totalSize)
+        data[idx] *= scale;
 }
 
 // Funzione principale per il template matching
@@ -113,6 +166,15 @@ cudaError_t templateMatchingSSD(
     int kx = templ.cols;
     int ky = templ.rows;
 
+    // dimensioni ottimali FFT
+    int m = cv::getOptimalDFTSize(height + ky - 1);
+    int n = cv::getOptimalDFTSize(width + kx - 1);
+    int freqCols = n / 2 + 1;
+    size_t realSize = sizeof(float) * m * n;
+    size_t freqSize = sizeof(cufftComplex) * m * freqCols;
+
+    float *d_imgPad, *d_tmpPad;
+    cufftComplex *d_imgFreq, *d_tmpFreq;
     // Calcolo delle somme del template
     float templateSqSum = 0;
 
@@ -125,6 +187,22 @@ cudaError_t templateMatchingSSD(
     cudaError_t cudaStatus;
 
     // Allocazione memoria su device
+    cudaStatus = cudaMalloc(&d_imgPad, realSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    cudaStatus = cudaMalloc(&d_tmpPad, realSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    cudaStatus = cudaMalloc(&d_imgFreq, freqSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
+    cudaStatus = cudaMalloc(&d_tmpFreq, freqSize);
+    if (cudaStatus != cudaSuccess)
+        return cudaStatus;
+
     cudaStatus = cudaMalloc(&d_image, imageSize);
     if (cudaStatus != cudaSuccess)
         return cudaStatus;
@@ -208,16 +286,42 @@ cudaError_t templateMatchingSSD(
                cudaMemcpyDeviceToDevice);
 
     // calcolo matrice cross correlation
-    // auto start_cross = high_resolution_clock::now();
-    cv::Mat crossCorrelation;
-    crossCorrelation = crossCorrelationFFT(imageN, templN);
-    // auto end_cross = high_resolution_clock::now();
-    // auto duration_cross = duration_cast<milliseconds>(end_cross - start_cross);
-    // std::cout << "Tempo cross correlation (ms): " << duration_cross.count() << std::endl;
+    auto start_cross = high_resolution_clock::now();
+    // Pad to zero
+    dim3 b1(16, 16), g1((n + 15) / 16, (m + 15) / 16);
+    padToZero<<<g1, b1>>>(d_image, d_imgPad, height, width, m, n);
+    padToZero<<<g1, b1>>>(d_templ, d_tmpPad, ky, kx, m, n);
 
-    cudaStatus = cudaMemcpy(d_crossCorrelation, crossCorrelation.ptr<float>(), resultSize, cudaMemcpyHostToDevice);
-    if (cudaStatus != cudaSuccess)
-        return cudaStatus;
+    // cuFFT plan
+    cufftHandle planFwd, planInv;
+    cufftPlan2d(&planFwd, m, n, CUFFT_R2C);
+    cufftPlan2d(&planInv, m, n, CUFFT_C2R);
+
+    // FFT forward
+    cufftExecR2C(planFwd, d_imgPad, d_imgFreq);
+    cufftExecR2C(planFwd, d_tmpPad, d_tmpFreq);
+
+    // Multiply with conjugate
+    dim3 b2(16, 16), g2((freqCols + 15) / 16, (m + 15) / 16);
+    mulConjAndScale<<<g2, b2>>>(d_imgFreq, d_tmpFreq, m, freqCols);
+
+    // IFFT
+    cufftExecC2R(planInv, d_imgFreq, d_imgPad);
+
+    // Normalize
+    int totalReal = m * n;
+    normalize<<<(totalReal + 255) / 256, 256>>>(d_imgPad, totalReal, 1.0f / (m * n));
+
+    // auto start_cross = high_resolution_clock::now();
+    // cv::Mat crossCorrelation;
+    // crossCorrelation = crossCorrelationFFT(imageN, templN);
+    auto end_cross = high_resolution_clock::now();
+    auto duration_cross = duration_cast<milliseconds>(end_cross - start_cross);
+    std::cout << "Tempo cross correlation (ms): " << duration_cross.count() << std::endl;
+
+    // cudaStatus = cudaMemcpy(d_crossCorrelation, crossCorrelation.ptr<float>(), resultSize, cudaMemcpyHostToDevice);
+    // if (cudaStatus != cudaSuccess)
+    //     return cudaStatus;
 
     // Calcolo SSD
     dim3 gridSSDSize((width - kx + 1 + BLOCK_SIZE - 1) / BLOCK_SIZE, (height - ky + 1 + BLOCK_SIZE - 1) / BLOCK_SIZE);
@@ -229,7 +333,8 @@ cudaError_t templateMatchingSSD(
         kx,
         ky,
         d_ssdResult,
-        d_crossCorrelation);
+        d_imgPad,
+        n);
 
     // Copia risultati su host
     cv::Mat ssdResult(height - ky + 1, width - kx + 1, CV_32F);
@@ -244,6 +349,12 @@ cudaError_t templateMatchingSSD(
     *bestLoc = minLoc;
 
     // Cleanup
+    cufftDestroy(planFwd);
+    cufftDestroy(planInv);
+    cudaFree(d_imgPad);
+    cudaFree(d_tmpPad);
+    cudaFree(d_imgFreq);
+    cudaFree(d_tmpFreq);
     cudaFree(d_image);
     cudaFree(d_imageSqSum);
     cudaFree(d_ssdResult);
