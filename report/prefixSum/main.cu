@@ -139,7 +139,7 @@ __global__ void addBlockOffsets(float* data, float* blockSums,
 }
 
 // ============================================================================
-// KERNEL: PREFIX SUM PER COLONNE (TRANSPOSE + PREFIX SUM)
+// KERNEL: PREFIX SUM PER COLONNE
 // ============================================================================
 
 __global__ void optimizedTranspose(float* input, float* output, 

@@ -310,10 +310,10 @@ cudaError_t templateMatchingSSD(
 
     // Calcolo sequenziale per confronto
     cv::Mat integralSeq_img, integralSeq_Sq_img;
-    computeIntegralImagesSequential(imageN, integralSeq_img, integralSeq_Sq_img);
+    computeIntegralImagesSequential(imageN, integralSeq_Sq_img);
     
     cv::Mat seqSSDResult;
-    computeSSDSequentialWithIntegrals(integralSeq_img, integralSeq_Sq_img, templateSum, templateSqSum, width, height, kx, ky, seqSSDResult, crossCorrelation);
+    computeSSDSequentialWithIntegrals(integralSeq_Sq_img, templateSqSum, width, height, kx, ky, seqSSDResult, crossCorrelation);
     
     double minValSeq, maxValSeq;
     cv::Point minLocSeq, maxLocSeq;
