@@ -135,7 +135,8 @@ __global__ void mulConjAndScale(cufftComplex *imageF,
     cufftComplex B = kernelF[idx];
     // coniugato di B
     B.y = -B.y;
-    // moltiplicazione complessa
+    // moltiplicazione
+
     cufftComplex C;
     C.x = A.x * B.x - A.y * B.y;
     C.y = A.x * B.y + A.y * B.x;
@@ -287,6 +288,7 @@ cudaError_t templateMatchingSSD(
 
     // calcolo matrice cross correlation
     auto start_cross = high_resolution_clock::now();
+    
     // Pad to zero
     dim3 b1(16, 16), g1((n + 15) / 16, (m + 15) / 16);
     padToZero<<<g1, b1>>>(d_image, d_imgPad, height, width, m, n);
@@ -297,7 +299,7 @@ cudaError_t templateMatchingSSD(
     cufftPlan2d(&planFwd, m, n, CUFFT_R2C);
     cufftPlan2d(&planInv, m, n, CUFFT_C2R);
 
-    // FFT forward
+    // FFT 
     cufftExecR2C(planFwd, d_imgPad, d_imgFreq);
     cufftExecR2C(planFwd, d_tmpPad, d_tmpFreq);
 
@@ -305,7 +307,7 @@ cudaError_t templateMatchingSSD(
     dim3 b2(16, 16), g2((freqCols + 15) / 16, (m + 15) / 16);
     mulConjAndScale<<<g2, b2>>>(d_imgFreq, d_tmpFreq, m, freqCols);
 
-    // IFFT
+    //  FFT inversa
     cufftExecC2R(planInv, d_imgFreq, d_imgPad);
 
     // Normalize
