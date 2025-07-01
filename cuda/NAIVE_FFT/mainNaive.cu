@@ -45,7 +45,7 @@ __global__ void colCumSum(float *rowSum, float *imageSum, int width, int height)
 }
 
 // Funzione device per calcolare la somma in una regione usando la sum table
-__device__ int getRegionSum(const float *sumTable, int width, int height, int x, int y, int kx, int ky)
+__device__ float getRegionSum(const float *sumTable, int width, int height, int x, int y, int kx, int ky)
 {
     int x1 = x - 1;
     int y1 = y - 1;
@@ -371,7 +371,7 @@ cudaError_t templateMatchingSSD(
 
 int main()
 {
-    // Carica le immagini
+    
     cv::Mat image = cv::imread("immagini/sourceC.jpg", cv::IMREAD_GRAYSCALE);
     cv::Mat imageColor = cv::imread("immagini/sourceC.jpg", cv::IMREAD_COLOR);
     cv::Mat templ = cv::imread("immagini/templateC.jpg", cv::IMREAD_GRAYSCALE);

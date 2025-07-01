@@ -6,7 +6,9 @@
 using namespace cv;
 using namespace std::chrono;
 
-void templateMatchingSIMD(const Mat &image, const Mat &templateImg, Mat &matchScores)
+#include <immintrin.h>
+
+void templateMatchingSIMD_64bit(const cv::Mat &image, const cv::Mat &templateImg, cv::Mat &matchScores)
 {
     int imgRows = image.rows;
     int imgCols = image.cols;
@@ -15,65 +17,72 @@ void templateMatchingSIMD(const Mat &image, const Mat &templateImg, Mat &matchSc
 
     matchScores.create(imgRows - tmplRows + 1, imgCols - tmplCols + 1, CV_32F);
 
-    // #pragma omp parallel for
+// OpenMP per parallelizzare il for su tutti i thread
+#pragma omp parallel for
     for (int i = 0; i <= imgRows - tmplRows; ++i)
     {
         float *scoresPtr = matchScores.ptr<float>(i);
 
         for (int j = 0; j <= imgCols - tmplCols; ++j)
         {
-            __m128i sumInt = _mm_setzero_si128();
+            __m128i sumInt64 = _mm_setzero_si128(); // Accumulatore a 64 bit
 
             for (int x = 0; x < tmplRows; ++x)
             {
                 const uint8_t *tmplPtr = templateImg.ptr<uint8_t>(x);
                 const uint8_t *imgWindowPtr = image.ptr<uint8_t>(i + x) + j;
 
+                // Ciclo SIMD principale (16 pixel per iterazione)
                 int y = 0;
                 for (; y <= tmplCols - 16; y += 16)
                 {
-                    __m128i imgPixels = _mm_loadu_si128((__m128i *)&imgWindowPtr[y]);
-                    __m128i tmplPixels = _mm_loadu_si128((__m128i *)&tmplPtr[y]);
+                    // Carica 16 pixel
+                    __m128i imgPixels = _mm_loadu_si128((__m128i *)(imgWindowPtr + y));
+                    __m128i tmplPixels = _mm_loadu_si128((__m128i *)(tmplPtr + y));
 
+                    // Espandi a 16-bit
                     __m128i imgLo = _mm_unpacklo_epi8(imgPixels, _mm_setzero_si128());
                     __m128i imgHi = _mm_unpackhi_epi8(imgPixels, _mm_setzero_si128());
                     __m128i tmplLo = _mm_unpacklo_epi8(tmplPixels, _mm_setzero_si128());
                     __m128i tmplHi = _mm_unpackhi_epi8(tmplPixels, _mm_setzero_si128());
 
+                    // Calcola differenze
                     __m128i diffLo = _mm_sub_epi16(imgLo, tmplLo);
                     __m128i diffHi = _mm_sub_epi16(imgHi, tmplHi);
 
-                    __m128i sqLo = _mm_mullo_epi16(diffLo, diffLo);
-                    __m128i sqHi = _mm_mullo_epi16(diffHi, diffHi);
+                    __m128i sqLo = _mm_madd_epi16(diffLo, diffLo);
+                    __m128i sqHi = _mm_madd_epi16(diffHi, diffHi);
+                  
+                    __m128i sqLo_low = _mm_cvtepu32_epi64(sqLo);
+                    __m128i sqLo_high = _mm_cvtepu32_epi64(_mm_bsrli_si128(sqLo, 8));
+                    __m128i sqHi_low = _mm_cvtepu32_epi64(sqHi);
+                    __m128i sqHi_high = _mm_cvtepu32_epi64(_mm_bsrli_si128(sqHi, 8));
 
-                    __m128i sumLo = _mm_add_epi32(_mm_unpacklo_epi16(sqLo, _mm_setzero_si128()),
-                                                  _mm_unpackhi_epi16(sqLo, _mm_setzero_si128()));
-                    __m128i sumHi = _mm_add_epi32(_mm_unpacklo_epi16(sqHi, _mm_setzero_si128()),
-                                                  _mm_unpackhi_epi16(sqHi, _mm_setzero_si128()));
-
-                    sumInt = _mm_add_epi32(sumInt, sumLo);
-                    sumInt = _mm_add_epi32(sumInt, sumHi);
+                    sumInt64 = _mm_add_epi64(sumInt64, sqLo_low);
+                    sumInt64 = _mm_add_epi64(sumInt64, sqLo_high);
+                    sumInt64 = _mm_add_epi64(sumInt64, sqHi_low);
+                    sumInt64 = _mm_add_epi64(sumInt64, sqHi_high);
                 }
 
+                // Ciclo residuo (int64_t)
                 for (; y < tmplCols; ++y)
                 {
-                    int diff = static_cast<int>(imgWindowPtr[y]) - static_cast<int>(tmplPtr[y]);
-                    sumInt = _mm_add_epi32(sumInt, _mm_set1_epi32(diff * diff));
+                    int64_t diff = static_cast<int64_t>(imgWindowPtr[y]) - static_cast<int64_t>(tmplPtr[y]);
+                    sumInt64 = _mm_add_epi64(sumInt64, _mm_set1_epi64x(diff * diff));
                 }
             }
 
-            int sumArray[4];
-            _mm_storeu_si128((__m128i *)sumArray, sumInt);
-            float score = static_cast<float>(sumArray[0] + sumArray[1] + sumArray[2] + sumArray[3]);
-            scoresPtr[j] = score;
+            alignas(16) int64_t sumArray[2];
+            _mm_store_si128((__m128i *)sumArray, sumInt64);
+            scoresPtr[j] = static_cast<float>(sumArray[0] + sumArray[1]);
         }
     }
 }
 
 int main()
 {
-    Mat image = imread("../../immagini/sourceC.jpg", IMREAD_COLOR);
-    Mat templateImg = imread("../../immagini/templateC.jpg", IMREAD_COLOR);
+    Mat image = imread("../../immagini/source.jpg", IMREAD_COLOR);
+    Mat templateImg = imread("../../immagini/template100.jpg", IMREAD_COLOR);
 
     if (image.empty() || templateImg.empty())
     {
@@ -88,7 +97,7 @@ int main()
     std::cout << "Dimensioni immagine: " << grayImage.cols << "x" << grayImage.rows << std::endl;
     std::cout << "Dimensioni template: " << grayTemplate.cols << "x" << grayTemplate.rows << std::endl;
 
-    double scaleFactor = 0.25;
+    double scaleFactor = 1;
     resize(grayImage, grayImage, Size(), scaleFactor, scaleFactor, INTER_LINEAR);
     resize(grayTemplate, grayTemplate, Size(), scaleFactor, scaleFactor, INTER_LINEAR);
 
@@ -99,11 +108,10 @@ int main()
 
     auto start_templateM = high_resolution_clock::now();
 
-    templateMatchingSIMD(grayImage, grayTemplate, matchScores);
+    templateMatchingSIMD_64bit(grayImage, grayTemplate, matchScores);
     auto end_temaplateM = high_resolution_clock::now();
     auto duration_templateM = duration_cast<milliseconds>(end_temaplateM - start_templateM);
     std::cout << "Tempo calcolo immagine integrale (ms): " << duration_templateM.count() << std::endl;
-
 
     double minScore;
     Point minLoc;
@@ -119,6 +127,7 @@ int main()
 
     imshow("Immagine principale", image);
     imshow("Template", templateImg);
+    cv::imwrite("Result.jpg", image);
     cv::imwrite("Result.jpg", image);
     waitKey(0);
 

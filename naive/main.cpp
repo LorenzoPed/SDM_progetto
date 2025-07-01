@@ -57,8 +57,8 @@ void templateMatching(const Mat &image,
 int main()
 {
     // Carica l'immagine principale e il template
-    Mat image = imread("../../immagini/sourceC.jpg", IMREAD_COLOR);     // Immagine principale
-    Mat templateImg = imread("../../immagini/templateC.jpg", IMREAD_COLOR); // Template
+    Mat image = imread("../../immagini/source.jpg", IMREAD_COLOR);     // Immagine principale
+    Mat templateImg = imread("../../immagini/template100.jpg", IMREAD_COLOR); // Template
 
     if (image.empty() || templateImg.empty())
     {
