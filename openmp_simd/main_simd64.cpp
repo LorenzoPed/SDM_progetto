@@ -1,7 +1,7 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <chrono>
-#include <omp.h> // Per OpenMP
+#include <omp.h> 
 
 using namespace cv;
 using namespace std::chrono;
@@ -17,7 +17,6 @@ void templateMatchingSIMD_64bit(const cv::Mat &image, const cv::Mat &templateImg
 
     matchScores.create(imgRows - tmplRows + 1, imgCols - tmplCols + 1, CV_32F);
 
-// OpenMP per parallelizzare il for su tutti i thread
 #pragma omp parallel for
     for (int i = 0; i <= imgRows - tmplRows; ++i)
     {
@@ -25,34 +24,35 @@ void templateMatchingSIMD_64bit(const cv::Mat &image, const cv::Mat &templateImg
 
         for (int j = 0; j <= imgCols - tmplCols; ++j)
         {
-            __m128i sumInt64 = _mm_setzero_si128(); // Accumulatore a 64 bit
+            __m128i sumInt64 = _mm_setzero_si128(); 
 
             for (int x = 0; x < tmplRows; ++x)
             {
                 const uint8_t *tmplPtr = templateImg.ptr<uint8_t>(x);
                 const uint8_t *imgWindowPtr = image.ptr<uint8_t>(i + x) + j;
 
-                // Ciclo SIMD principale (16 pixel per iterazione)
+                // 16 pixel a iterazione
                 int y = 0;
                 for (; y <= tmplCols - 16; y += 16)
                 {
-                    // Carica 16 pixel
                     __m128i imgPixels = _mm_loadu_si128((__m128i *)(imgWindowPtr + y));
                     __m128i tmplPixels = _mm_loadu_si128((__m128i *)(tmplPtr + y));
 
-                    // Espandi a 16-bit
+                    // Da 8x16 a 16x8
                     __m128i imgLo = _mm_unpacklo_epi8(imgPixels, _mm_setzero_si128());
                     __m128i imgHi = _mm_unpackhi_epi8(imgPixels, _mm_setzero_si128());
                     __m128i tmplLo = _mm_unpacklo_epi8(tmplPixels, _mm_setzero_si128());
                     __m128i tmplHi = _mm_unpackhi_epi8(tmplPixels, _mm_setzero_si128());
 
-                    // Calcola differenze
+                    
                     __m128i diffLo = _mm_sub_epi16(imgLo, tmplLo);
                     __m128i diffHi = _mm_sub_epi16(imgHi, tmplHi);
 
+                    // 4x32
                     __m128i sqLo = _mm_madd_epi16(diffLo, diffLo);
                     __m128i sqHi = _mm_madd_epi16(diffHi, diffHi);
                   
+                    // 2x64 (evita overflow per template > 150x150 circa)
                     __m128i sqLo_low = _mm_cvtepu32_epi64(sqLo);
                     __m128i sqLo_high = _mm_cvtepu32_epi64(_mm_bsrli_si128(sqLo, 8));
                     __m128i sqHi_low = _mm_cvtepu32_epi64(sqHi);
@@ -64,7 +64,7 @@ void templateMatchingSIMD_64bit(const cv::Mat &image, const cv::Mat &templateImg
                     sumInt64 = _mm_add_epi64(sumInt64, sqHi_high);
                 }
 
-                // Ciclo residuo (int64_t)
+                // Per gli eventuali pixel restanti 
                 for (; y < tmplCols; ++y)
                 {
                     int64_t diff = static_cast<int64_t>(imgWindowPtr[y]) - static_cast<int64_t>(tmplPtr[y]);
@@ -72,6 +72,7 @@ void templateMatchingSIMD_64bit(const cv::Mat &image, const cv::Mat &templateImg
                 }
             }
 
+            // Allineamento 128bit
             alignas(16) int64_t sumArray[2];
             _mm_store_si128((__m128i *)sumArray, sumInt64);
             scoresPtr[j] = static_cast<float>(sumArray[0] + sumArray[1]);

@@ -125,7 +125,7 @@ __global__ void padToZero(const float *src, float *dst,
 }
 
 // Kernel moltiplicazione complessa coniugata
-__global__ void mulConjAndScale(cufftComplex *imageF,
+__global__ void mulConj(cufftComplex *imageF,
                                 const cufftComplex *kernelF,
                                 int rows, int colsFreq)
 {
@@ -306,7 +306,7 @@ cudaError_t templateMatchingSSD(
 
     // Multiply with conjugate: fa la matrice complessa coniugata
     dim3 b2(16, 16), g2((freqCols + 15) / 16, (m + 15) / 16);
-    mulConjAndScale<<<g2, b2>>>(d_imgFreq, d_tmpFreq, m, freqCols); 
+    mulConj<<<g2, b2>>>(d_imgFreq, d_tmpFreq, m, freqCols); 
 
     // IFFT: ritorno nel dominio spaziale 
     cufftExecC2R(planInv, d_imgFreq, d_imgPad);

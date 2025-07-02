@@ -1,7 +1,7 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <chrono>
-#include <omp.h> // Per OpenMP
+#include <omp.h> 
 #include <immintrin.h>
 
 using namespace cv;
@@ -31,11 +31,14 @@ void templateMatchingSIMD(const Mat &image, const Mat &templateImg, Mat &matchSc
                 const uint8_t *imgWindowPtr = image.ptr<uint8_t>(i + x) + j;
 
                 int y = 0;
+
+                // 16 pixel alla volta
                 for (; y <= tmplCols - 16; y += 16)
                 {
                     __m128i imgPixels = _mm_loadu_si128((__m128i *)&imgWindowPtr[y]);
                     __m128i tmplPixels = _mm_loadu_si128((__m128i *)&tmplPtr[y]);
 
+                    // da 8x16 a 16x8 (per la differenza)
                     __m128i imgLo = _mm_unpacklo_epi8(imgPixels, _mm_setzero_si128());
                     __m128i imgHi = _mm_unpackhi_epi8(imgPixels, _mm_setzero_si128());
                     __m128i tmplLo = _mm_unpacklo_epi8(tmplPixels, _mm_setzero_si128());
@@ -44,13 +47,16 @@ void templateMatchingSIMD(const Mat &image, const Mat &templateImg, Mat &matchSc
                     __m128i diffLo = _mm_sub_epi16(imgLo, tmplLo);
                     __m128i diffHi = _mm_sub_epi16(imgHi, tmplHi);
 
+                    // Moltiplicazione di coppie di valori e somme 
+                    // 4x32
                     __m128i sqLo = _mm_madd_epi16(diffLo, diffLo);
                     __m128i sqHi = _mm_madd_epi16(diffHi, diffHi);
 
                     sumInt = _mm_add_epi32(sumInt, sqLo);
                     sumInt = _mm_add_epi32(sumInt, sqHi);
                 }
-
+                
+                // Pixel restanti se le colonne non sono multipli di 16
                 for (; y < tmplCols; ++y)
                 {
                     int diff = static_cast<int>(imgWindowPtr[y]) - static_cast<int>(tmplPtr[y]);
@@ -58,6 +64,7 @@ void templateMatchingSIMD(const Mat &image, const Mat &templateImg, Mat &matchSc
                 }
             }
 
+            // Somma i 4 risultati parziali e salva nella matrice risultato 
             int sumArray[4];
             _mm_storeu_si128((__m128i *)sumArray, sumInt);
             float score = static_cast<float>(sumArray[0] + sumArray[1] + sumArray[2] + sumArray[3]);
