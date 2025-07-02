@@ -5,9 +5,14 @@ In particolare le due versioni CUDA vengono eseguite insieme alla versione C++ o
 naive e ottimizzata. Infine trovate la relazione sul progetto
 
 ## 📂 Struttura del progetto
-- []
-- [`cpp-sequenziale/`](./cpp-sequenziale/) — Implementazione base in C++ non ottimizzata
-- [`simd32/`](./simd/) — Versione SIMD 32 bit
-- [`simd64/`](./simd/) — Versione SIMD 64 bit
-- [`cuda-naive/`](./cuda-naive/) — Versione parallela CUDA naive con report e libreria per seq. ottimizato
-- [`cuda-optimized/`](./cuda-optimized/) — Versione CUDA ottimizzata con report e libreria per seq. ottimizato
+- [Relazione](https://github.com/LorenzoPed/SDM_progetto/blob/master/SD_project_final.pdf) 
+- [`cpp-sequenziale/`](https://github.com/LorenzoPed/SDM_progetto/blob/master/naive/main.cpp
+) — Implementazione base in C++ non ottimizzata
+- [`simd32/`](https://github.com/LorenzoPed/SDM_progetto/blob/master/openmp_simd/main_simd32.cpp
+) — Versione SIMD 32 bit
+- [`simd64/`](https://github.com/LorenzoPed/SDM_progetto/blob/master/openmp_simd/main_simd64.cpp)
+   — Versione SIMD 64 bit
+- [`cuda-naive/`](https://github.com/LorenzoPed/SDM_progetto/tree/master/report_naive_finale
+) — Versione parallela CUDA naive con report e libreria per seq. ottimizato
+- [`cuda-optimized/`](https://github.com/LorenzoPed/SDM_progetto/tree/master/report_optimized
+) — Versione CUDA ottimizzata con report e libreria per seq. ottimizato
