@@ -5,7 +5,7 @@ In particolare le due versioni CUDA vengono eseguite insieme alla versione C++ o
 naive e ottimizzata. Infine trovate la relazione sul progetto
 
 ## 📂 Struttura del progetto
-- [Relazione](https://github.com/LorenzoPed/SDM_progetto/blob/master/SD_project_final.pdf) 
+- [Relazione](https://github.com/LorenzoPed/SDM_progetto/blob/master/SD_project_final_V2.pdf) 
 - [`cpp-sequenziale/`](https://github.com/LorenzoPed/SDM_progetto/blob/master/naive/main.cpp
 ) — Implementazione base in C++ non ottimizzata
 - [`simd32/`](https://github.com/LorenzoPed/SDM_progetto/blob/master/openmp_simd/main_simd32.cpp
