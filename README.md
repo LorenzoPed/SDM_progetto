@@ -17,3 +17,4 @@ naive e ottimizzata. Infine trovate la relazione sul progetto
 ) — Versione parallela CUDA naive con report e libreria per seq. ottimizato
 - [`cuda-optimized/`](https://github.com/LorenzoPed/SDM_progetto/tree/master/report_optimized
 ) — Versione CUDA ottimizzata con report e libreria per seq. ottimizato
+- [cuda-video](https://github.com/LorenzoPed/SDM_progetto/blob/master/main_video_finale.cu) - Codice attività progettuale
